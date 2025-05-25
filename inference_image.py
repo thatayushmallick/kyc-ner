@@ -6,22 +6,18 @@ import pytesseract
 import torch
 from transformers import BertTokenizerFast, BertForTokenClassification
 
-# ─────── CONFIG ───────
-# 1) Path to your fine-tuned checkpoint folder:
+# path to checkpoint folder:
 MODEL_CHECKPOINT = Path('./outputs/checkpoint-813')
 
-# 2) Pretrained tokenizer name (must match your training):
 PRETRAINED_TOKENIZER = 'bert-base-uncased'
 
-# 3) Label map (must match training script)
 id2label = {0: 'O', 1: 'NAME', 2: 'DOB', 3: 'AADHAR', 4: 'ADDRESS'}
 
-# ─────── OCR HELPER ───────
 def ocr_image_to_text(image_path: Path) -> str:
     img = Image.open(image_path)
     return pytesseract.image_to_string(img)
 
-# ─────── LOAD MODEL & TOKENIZER ───────
+# load model and tokenizer
 print(f"Loading tokenizer (‘{PRETRAINED_TOKENIZER}’) and model from {MODEL_CHECKPOINT}…")
 tokenizer = BertTokenizerFast.from_pretrained(PRETRAINED_TOKENIZER)
 model     = BertForTokenClassification.from_pretrained(
@@ -31,7 +27,6 @@ model     = BertForTokenClassification.from_pretrained(
 )
 model.eval()
 
-# ─────── ENTITY EXTRACTION ───────
 def extract_entities_from_text(text: str) -> dict:
     tokens = text.split()
     inputs = tokenizer(tokens, is_split_into_words=True, return_tensors='pt')
@@ -46,10 +41,9 @@ def extract_entities_from_text(text: str) -> dict:
         if lbl == 'DOB':     out['DOB']      += tok
         if lbl == 'AADHAR':  out['Aadhar']   += tok
         if lbl == 'ADDRESS': out['Address']  += tok + ' '
-    # strip trailing spaces
+    # striping trailing spaces
     return {k:v.strip() for k,v in out.items()}
 
-# ─────── MAIN ───────
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python inference_image.py /path/to/image.jpg")

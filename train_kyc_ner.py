@@ -11,9 +11,7 @@ from transformers import BertTokenizerFast, BertForTokenClassification, Trainer,
 from transformers import EvalPrediction
 from sklearn.metrics import precision_recall_fscore_support
 
-# ----------------------------------------------------------------------------
-# 0. Parse command-line or env var for data root
-# ----------------------------------------------------------------------------
+# parsing command line for data root
 if len(sys.argv) > 1:
     data_root = Path(sys.argv[1])
 else:
@@ -21,26 +19,24 @@ else:
 
 if not data_root or not data_root.exists():
     print("ERROR: No valid data_root provided.\n"
-          "Usage (Windows):\n"
-          "  python train_kyc_ner.py C:\\full\\path\\to\\archive\n"
-          "Usage (Linux/Mac):\n"
+          "Usage:\n"
           "  python train_kyc_ner.py /full/path/to/archive")
     sys.exit(1)
 print(f"Using data_root = {data_root}")
 
-# 1. Constants and label mappings
+# constants and label mappings
 fields = ["O", "NAME", "DOB", "AADHAR", "ADDRESS"]
 label2id = {lbl: idx for idx, lbl in enumerate(fields)}
 id2label = {v: k for k, v in label2id.items()}
 
-# 2. Utility: load OCR text from JSON annotations
+# load ocr text from annotations
 def load_ocr_text(ann_path: Path) -> str:
     with open(ann_path, 'r', encoding='utf-8') as f:
         ann = json.load(f)
     tokens = [w.get('text', '') for w in ann.get('words', [])]
     return " ".join(tokens)
 
-# 3. Heuristic labeling
+# heuristic labeling
 def label_text(text: str) -> (List[str], List[str]):
     tokens = text.split()
     labels = ['O'] * len(tokens)
@@ -59,7 +55,7 @@ def label_text(text: str) -> (List[str], List[str]):
             labels[j] = 'ADDRESS'
     return tokens, labels
 
-# 4. Dataset class
+# dataset class
 class KycDataset(Dataset):
     def __init__(self, texts: List[List[str]], tags: List[List[str]], tokenizer, max_len: int = 128):
         assert len(texts) == len(tags), "Texts and tags must match"
@@ -82,10 +78,10 @@ class KycDataset(Dataset):
         encoding['labels'] = label_ids
         return {k: torch.tensor(v) for k, v in encoding.items()}
 
-# 5. Load and debug splits
+# load and debug splits
 def prepare_split(split_name: str):
     texts, tags = [], []
-    print(f"\n--- Scanning {split_name} split ---")
+    print(f"\nScanning {split_name} split")
     for doc_type in ['document', 'form', 'invoice', 'real_life']:
         ann_dir = data_root / doc_type / split_name / 'annotations'
         if not ann_dir.exists():
@@ -111,18 +107,18 @@ if len(train_texts) == 0:
 
 print(f"\nSummary: Training={len(train_texts)}, Validation={len(val_texts)}")
 
-# 6. Tokenizer & Datasets
+# tokenizer and datasets
 tokenizer = BertTokenizerFast.from_pretrained('bert-base-uncased')
 train_dataset = KycDataset(train_texts, train_tags, tokenizer)
 val_dataset = KycDataset(val_texts, val_tags, tokenizer)
 
-# 7. Model init
+# model init
 def create_model():
     return BertForTokenClassification.from_pretrained(
         'bert-base-uncased', num_labels=len(fields), id2label=id2label, label2id=label2id)
 model = create_model()
 
-# 8. Metrics
+# metrics
 def compute_metrics(p: EvalPrediction):
     preds = p.predictions.argmax(-1).flatten()
     labels = p.label_ids.flatten()
@@ -131,20 +127,20 @@ def compute_metrics(p: EvalPrediction):
     precision, recall, f1, _ = precision_recall_fscore_support(lbls, preds, average='weighted', zero_division=0)
     return {'precision': precision, 'recall': recall, 'f1': f1}
 
-# 9. Training args & Trainer
+# training args and trainer
 training_args = TrainingArguments(output_dir='./outputs', per_device_train_batch_size=8,
                                   per_device_eval_batch_size=8, num_train_epochs=3,
                                   learning_rate=5e-5, weight_decay=0.01, logging_dir='./logs')
 trainer = Trainer(model=model, args=training_args, train_dataset=train_dataset, compute_metrics=compute_metrics)
 
-# 10. Train & evaluate
+# train & eval
 print("\nStarting training...")
 trainer.train()
 print("\nTraining complete. Running final evaluation...")
 metrics = trainer.evaluate(eval_dataset=val_dataset)
 print("Validation metrics:", metrics)
 
-# 11. Inference helper
+# inference helper
 def extract_entities(ocr_text: str) -> Dict[str, str]:
     tokens = ocr_text.split()
     inputs = tokenizer(tokens, is_split_into_words=True, return_tensors='pt')
@@ -158,6 +154,3 @@ def extract_entities(ocr_text: str) -> Dict[str, str]:
         if lbl == 'AADHAR': ents['Aadhar'] += tok
         if lbl == 'ADDRESS': ents['Address'] += tok + ' '
     return {k: v.strip() for k, v in ents.items()}
-
-# Usage example (Windows):
-# python train_kyc_ner.py C:\\Users\\ayush\\Documents\\archive
